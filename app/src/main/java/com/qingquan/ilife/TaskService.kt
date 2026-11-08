@@ -38,7 +38,7 @@ class TaskService : Service() {
         @Volatile var running = false
         @Volatile var totalAccounts = 0
         val doneCount = AtomicInteger(0)
-        @Volatile var totalGain = 0
+        val totalGain = AtomicInteger(0)
         @Volatile var lastLog = ""
 
         // 界面回调（MainActivity 注册）
@@ -88,7 +88,7 @@ class TaskService : Service() {
                     running = true
                     stopFlag.set(false)
                     doneCount.set(0)
-                    totalGain = 0
+                    totalGain.set(0)
                     pool.execute { runAll(mode) }
                 }
             }
@@ -140,7 +140,7 @@ class TaskService : Service() {
                 }
 
                 override fun onAccountDone(a: Account, g: Int) {
-                    totalGain += g
+                    totalGain.addAndGet(g)
                     doneCount.incrementAndGet()
                     // 只有真正完成的才存断点（gain>=0 且没错误）
                     if (a.status == "完成" || a.status == "已完成") {
@@ -169,7 +169,7 @@ class TaskService : Service() {
 
     private fun finishRun() {
         running = false
-        pushLog("===== 完成 · 总积分 +$totalGain =====")
+        pushLog("===== 完成 · 总积分 +${totalGain.get()} =====")
         updateNotification()
         progressListener?.invoke()
 
@@ -243,7 +243,7 @@ class TaskService : Service() {
 
     private fun updateNotification() {
         try {
-            val text = "$doneCount/$totalAccounts · 积分 +$totalGain"
+            val text = "$doneCount/$totalAccounts · 积分 +${totalGain.get()}"
             val nm = getSystemService(NotificationManager::class.java)
             nm.notify(NOTIFY_ID, buildNotification(text, doneCount.get(), totalAccounts))
         } catch (_: Exception) {
