@@ -9,9 +9,6 @@ import com.qingquan.ilife.core.ApiResult
 import com.qingquan.ilife.core.IlifeApi
 import com.qingquan.ilife.databinding.ActivityAddAccountBinding
 
-/**
- * 添加账号 —— 支持手动填 / 粘贴 JSON 自动解析
- */
 class AddAccountActivity : AppCompatActivity() {
 
     private lateinit var b: ActivityAddAccountBinding
@@ -23,7 +20,6 @@ class AddAccountActivity : AppCompatActivity() {
 
         b.btnBack.setOnClickListener { finish() }
 
-        // 自动解析
         b.btnParse.setOnClickListener {
             val text = b.etPaste.text.toString().trim()
             if (text.isEmpty()) {
@@ -41,10 +37,9 @@ class AddAccountActivity : AppCompatActivity() {
             }
         }
 
-        // 验证并添加
         b.btnAdd.setOnClickListener {
             val token = b.etToken.text.toString().trim()
-            var uid = b.etUid.text.toString().trim()
+            val uid = b.etUid.text.toString().trim()
             var name = b.etName.text.toString().trim()
 
             if (token.isEmpty()) {
@@ -71,31 +66,22 @@ class AddAccountActivity : AppCompatActivity() {
 
                     when (r) {
                         is ApiResult.Ok -> {
-                            val acc = Account(name = finalName, uid = uid, appToken = token)
+                            val acc = Account(finalName, uid, token)
                             acc.score = r.state.score
                             acc.weekSigned = r.state.reword
                             acc.status = "已添加"
 
                             if (AccountStore.add(this, acc)) {
-                                Toast.makeText(
-                                    this,
-                                    "添加成功 · ${finalName} · 积分 ${r.state.score}",
-                                    Toast.LENGTH_LONG
-                                ).show()
+                                Toast.makeText(this, "添加成功 · ${finalName} · 积分 ${r.state.score}", Toast.LENGTH_LONG).show()
                                 finish()
                             } else {
                                 Toast.makeText(this, "该账号已存在", Toast.LENGTH_SHORT).show()
                             }
                         }
-                        is ApiResult.TokenInvalid -> Toast.makeText(
-                            this, "token 无效或已过期", Toast.LENGTH_LONG
-                        ).show()
-                        is ApiResult.RateLimited -> Toast.makeText(
-                            this, "接口限流，稍后再试", Toast.LENGTH_LONG
-                        ).show()
-                        is ApiResult.Failed -> Toast.makeText(
-                            this, "验证失败：${r.msg}", Toast.LENGTH_LONG
-                        ).show()
+                        is ApiResult.TokenInvalid -> Toast.makeText(this, "token 无效或已过期", Toast.LENGTH_LONG).show()
+                        is ApiResult.RateLimited -> Toast.makeText(this, "接口限流，稍后再试", Toast.LENGTH_LONG).show()
+                        is ApiResult.Failed -> Toast.makeText(this, "验证失败：${r.msg}", Toast.LENGTH_LONG).show()
+                        else -> Toast.makeText(this, "未知结果", Toast.LENGTH_SHORT).show()
                     }
                 }
             }.start()
