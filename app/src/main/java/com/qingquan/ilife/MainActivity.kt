@@ -44,6 +44,16 @@ class MainActivity : AppCompatActivity() {
             startActivity(Intent(this, SettingsActivity::class.java))
         }
 
+        // Android 13+ 请求通知权限（前台服务通知需要）
+        if (android.os.Build.VERSION.SDK_INT >= 33) {
+            if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)
+                != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                requestPermissions(
+                    arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 1001
+                )
+            }
+        }
+
         // 服务回调
         TaskService.logListener = { msg -> runOnUiThread { appendLog(msg) } }
         TaskService.progressListener = { runOnUiThread { refreshList() } }
