@@ -23,6 +23,12 @@ data class Account(
         put("name", name)
         put("uid", uid)
         put("appToken", appToken)
+        // 持久化状态，重启 App 后仍能看到上次结果
+        put("score", score)
+        put("todayGain", todayGain)
+        put("missionDone", missionDone)
+        put("missionTotal", missionTotal)
+        put("status", status)
     }
 
     companion object {
@@ -30,7 +36,13 @@ data class Account(
             name = o.optString("name", ""),
             uid = o.optString("uid", ""),
             appToken = o.optString("appToken", "")
-        )
+        ).apply {
+            score = o.optInt("score", 0)
+            todayGain = o.optInt("todayGain", 0)
+            missionDone = o.optInt("missionDone", 0)
+            missionTotal = o.optInt("missionTotal", 0)
+            status = o.optString("status", "未运行")
+        }
 
         /** 从一段粘贴的文本里尽量解析出 uid / appToken */
         fun parseFromText(text: String): Account? {
