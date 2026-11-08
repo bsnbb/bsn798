@@ -82,7 +82,7 @@ class TaskService : Service() {
                 return START_NOT_STICKY
             }
             ACTION_START -> {
-                val mode = intent.getStringExtra(EXTRA_MODE) ?: "both"
+                val mode = intent？.getStringExtra(EXTRA_MODE) ?: "both"
                 startForeground(NOTIFY_ID, buildNotification("准备中...", 0, 0))
                 if (!running) {
                     running = true
