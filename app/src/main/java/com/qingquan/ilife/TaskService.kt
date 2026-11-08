@@ -18,38 +18,28 @@ import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 
-/**
- * 前台服务 —— 保证后台不被系统杀掉
- *
- * 这是解决 signal 9 的核心：前台服务会在通知栏常驻，
- * Android 不会轻易回收它。
- */
 class TaskService : Service() {
 
     companion object {
         const val CHANNEL_ID = "qingquan_task"
         const val NOTIFY_ID = 1001
-
         const val ACTION_START = "com.qingquan.ilife.START"
         const val ACTION_STOP = "com.qingquan.ilife.STOP"
-        const val EXTRA_MODE = "mode"   // sign / mission / both
+        const val EXTRA_MODE = "mode"
 
-        // 供界面观察的全局状态
         @Volatile var running = false
         @Volatile var totalAccounts = 0
         val doneCount = AtomicInteger(0)
         val totalGain = AtomicInteger(0)
         @Volatile var lastLog = ""
 
-        // 界面回调（MainActivity 注册）
         @Volatile var logListener: ((String) -> Unit)? = null
         @Volatile var progressListener: (() -> Unit)? = null
 
         fun start(ctx: Context, mode: String) {
-            val i = Intent(ctx, TaskService::class.java).apply {
-                action = ACTION_START
-                putExtra(EXTRA_MODE, mode)
-            }
+            val i = Intent(ctx, TaskService::class.java)
+            i.action = ACTION_START
+            i.putExtra(EXTRA_MODE, mode)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 ctx.startForegroundService(i)
             } else {
@@ -58,9 +48,9 @@ class TaskService : Service() {
         }
 
         fun stop(ctx: Context) {
-            ctx.startService(Intent(ctx, TaskService::class.java).apply {
-                action = ACTION_STOP
-            })
+            val i = Intent(ctx, TaskService::class.java)
+            i.action = ACTION_STOP
+            ctx.startService(i)
         }
     }
 
@@ -75,22 +65,26 @@ class TaskService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        when (intent?.action) {
-            ACTION_STOP -> {
-                stopFlag.set(true)
-                pushLog("⏹ 收到停止指令")
-                return START_NOT_STICKY
-            }
-            ACTION_START -> {
-                val mode = intent?.getStringExtra(EXTRA_MODE) ?: "both"
-                startForeground(NOTIFY_ID, buildNotification("准备中...", 0, 0))
-                if (!running) {
-                    running = true
-                    stopFlag.set(false)
-                    doneCount.set(0)
-                    totalGain.set(0)
-                    pool.execute { runAll(mode) }
-                }
+        var act = ""
+        var mode = "both"
+        if (intent != null) {
+            act = intent.action
+            var m = intent.getStringExtra(EXTRA_MODE)
+            if (m != null) mode = m
+        }
+        if (act == ACTION_STOP) {
+            stopFlag.set(true)
+            pushLog("收到停止指令")
+            return START_NOT_STICKY
+        }
+        if (act == ACTION_START) {
+            startForeground(NOTIFY_ID, buildNotification("准备中", 0, 0))
+            if (running == false) {
+                running = true
+                stopFlag.set(false)
+                doneCount.set(0)
+                totalGain.set(0)
+                pool.execute { runAll(mode) }
             }
         }
         return START_STICKY
@@ -100,32 +94,33 @@ class TaskService : Service() {
         Settings.load(this)
         val all = AccountStore.load(this)
         totalAccounts = all.size
-        pushLog("开始执行 · ${all.size} 个账号 · 模式 ${modeLabel(mode)}")
+        pushLog("开始执行 " + all.size + " 个账号")
 
-        // 断点续跑：跳过今日已完成的
         val doneNames = ProgressStore.doneNames(this, mode)
-        val todo = all.filter { it.name !in doneNames }
-        val skipped = all.size - todo.size
-        if (skipped > 0) pushLog("⟳ 断点续跑：跳过已完成 $skipped 个，剩余 ${todo.size} 个")
-
+        val todo = mutableListOf<Account>()
+        for (a in all) {
+            if (doneNames.contains(a.name) == false) todo.add(a)
+        }
         if (todo.isEmpty()) {
-            pushLog("✓ 今日所有账号都已完成")
+            pushLog("今日全部完成")
             finishRun()
             return
         }
 
-        // 并发执行
-        val workers = Settings.workers.coerceAtLeast(1)
-        val chunks = todo.chunked(workers.coerceAtMost(todo.size))
+        var workers = Settings.workers
+        if (workers < 1) workers = 1
+        var w = workers
+        if (w > todo.size) w = todo.size
+        val chunks = todo.chunked(w)
         for (chunk in chunks) {
             if (stopFlag.get()) break
-            val threads = chunk.map { acc ->
-                Thread {
-                    runOne(acc, mode)
-                }
+            val threads = mutableListOf<Thread>()
+            for (acc in chunk) {
+                val t = Thread { runOne(acc, mode) }
+                threads.add(t)
             }
-            threads.forEach { it.start() }
-            threads.forEach { it.join() }
+            for (t in threads) t.start()
+            for (t in threads) t.join()
         }
 
         finishRun()
@@ -134,7 +129,7 @@ class TaskService : Service() {
     private fun runOne(acc: Account, mode: String) {
         if (stopFlag.get()) return
         try {
-            val gain = Runner.runAccount(this, acc, mode, object : Runner.Callback {
+            Runner.runAccount(this, acc, mode, object : Runner.Callback {
                 override fun onLog(msg: String) {
                     pushLog(msg)
                 }
@@ -142,71 +137,60 @@ class TaskService : Service() {
                 override fun onAccountDone(a: Account, g: Int) {
                     totalGain.addAndGet(g)
                     doneCount.incrementAndGet()
-                    // 只有真正完成的才存断点（gain>=0 且没错误）
                     if (a.status == "完成" || a.status == "已完成") {
                         ProgressStore.markDone(this@TaskService, mode, a.name, g, a.score)
                     }
-                    // 回写账号状态
                     val list = AccountStore.load(this@TaskService)
-                    val idx = list.indexOfFirst { it.appToken == a.appToken }
-                    if (idx >= 0) {
-                        list[idx].score = a.score
-                        list[idx].todayGain = a.todayGain
-                        list[idx].status = a.status
-                        list[idx].missionDone = a.missionDone
-                        AccountStore.save(this@TaskService, list)
+                    var i = 0
+                    while (i < list.size) {
+                        if (list[i].appToken == a.appToken) {
+                            list[i].score = a.score
+                            list[i].todayGain = a.todayGain
+                            list[i].status = a.status
+                            list[i].missionDone = a.missionDone
+                        }
+                        i++
                     }
+                    AccountStore.save(this@TaskService, list)
                     updateNotification()
-                    progressListener?.invoke()
+                    val pl = progressListener
+                    if (pl != null) pl.invoke()
                 }
 
                 override fun isStopped(): Boolean = stopFlag.get()
             })
         } catch (e: Exception) {
-            pushLog("${acc.name} 异常：${e.message}")
+            pushLog(acc.name + " 异常 " + e.message)
         }
     }
 
     private fun finishRun() {
         running = false
-        pushLog("===== 完成 · 总积分 +${totalGain.get()} =====")
+        pushLog("完成 总积分 " + totalGain.get())
         updateNotification()
-        progressListener?.invoke()
-
-        // 结束后停止前台
+        val pl = progressListener
+        if (pl != null) pl.invoke()
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
                 stopForeground(STOP_FOREGROUND_DETACH)
             } else {
-                @Suppress("DEPRECATION")
                 stopForeground(false)
             }
-        } catch (_: Exception) {
+        } catch (e: Exception) {
         }
         stopSelf()
     }
 
     private fun pushLog(msg: String) {
         lastLog = msg
-        logListener?.invoke(msg)
-    }
-
-    private fun modeLabel(mode: String) = when (mode) {
-        "sign" -> "签到"
-        "mission" -> "任务"
-        else -> "签到+任务"
+        val ll = logListener
+        if (ll != null) ll.invoke(msg)
     }
 
     private fun createChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val ch = NotificationChannel(
-                CHANNEL_ID,
-                "清泉任务",
-                NotificationManager.IMPORTANCE_LOW
-            ).apply {
-                description = "签到与任务运行状态"
-                setShowBadge(false)
-            }
+            val ch = NotificationChannel(CHANNEL_ID, "清泉任务", NotificationManager.IMPORTANCE_LOW)
+            ch.setShowBadge(false)
             getSystemService(NotificationManager::class.java).createNotificationChannel(ch)
         }
     }
@@ -218,19 +202,19 @@ class TaskService : Service() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
-        val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            Notification.Builder(this, CHANNEL_ID)
+        var builder: Notification.Builder
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            builder = Notification.Builder(this, CHANNEL_ID)
         } else {
-            @Suppress("DEPRECATION")
-            Notification.Builder(this)
+            builder = Notification.Builder(this)
         }
 
-        builder.setContentTitle("清泉 · 运行中")
-            .setContentText(text)
-            .setSmallIcon(android.R.drawable.stat_notify_sync)
-            .setContentIntent(open)
-            .setOngoing(true)
-            .setOnlyAlertOnce(true)
+        builder.setContentTitle("清泉 运行中")
+        builder.setContentText(text)
+        builder.setSmallIcon(android.R.drawable.stat_notify_sync)
+        builder.setContentIntent(open)
+        builder.setOngoing(true)
+        builder.setOnlyAlertOnce(true)
 
         if (total > 0) {
             builder.setProgress(total, done, false)
@@ -243,16 +227,19 @@ class TaskService : Service() {
 
     private fun updateNotification() {
         try {
-            val text = "$doneCount/$totalAccounts · 积分 +${totalGain.get()}"
+            val text = doneCount.get().toString() + "/" + totalAccounts + " 积分 " + totalGain.get()
             val nm = getSystemService(NotificationManager::class.java)
             nm.notify(NOTIFY_ID, buildNotification(text, doneCount.get(), totalAccounts))
-        } catch (_: Exception) {
+        } catch (e: Exception) {
         }
     }
 
     override fun onDestroy() {
         running = false
-        try { pool.shutdownNow() } catch (_: Exception) {}
+        try {
+            pool.shutdownNow()
+        } catch (e: Exception) {
+        }
         super.onDestroy()
     }
 }
