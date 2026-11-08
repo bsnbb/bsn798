@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 液态玻璃配色 -->
+    <color name="bg_deep">#0A0F16</color>
+    <color name="bg_mid">#111A24</color>
+
+    <!-- 主色：青绿（水感） -->
+    <color name="primary">#00E5A0</color>
+    <color name="primary_dark">#00B87D</color>
+    <color name="primary_glow">#3300E5A0</color>
+
+    <!-- 辅色：紫 -->
+    <color name="accent">#7C4DFF</color>
+
+    <!-- 玻璃层 -->
+    <color name="glass_bg">#1AFFFFFF</color>
+    <color name="glass_bg_light">#26FFFFFF</color>
+    <color name="glass_border">#33FFFFFF</color>
+    <color name="glass_border_strong">#4DFFFFFF</color>
+
+    <!-- 文字 -->
+    <color name="text_main">#E8EAED</color>
+    <color name="text_sub">#8B949E</color>
+    <color name="text_dim">#5A6270</color>
+
+    <!-- 状态色 -->
+    <color name="ok">#00E676</color>
+    <color name="warn">#FFB300</color>
+    <color name="err">#FF5252</color>
+
+    <!-- 输入框 -->
+    <color name="input_bg">#14FFFFFF</color>
+    <color name="input_border">#26FFFFFF</color>
+    <color name="input_hint">#5A6270</color>
+</resources>
